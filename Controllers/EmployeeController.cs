@@ -1,10 +1,12 @@
 ﻿using EmployeeAPI.Data;
 using EmployeeAPI.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace EmployeeAPI.Controllers
 {
+    [Authorize]
     [Route("api/[controller]")]
     [ApiController]
     public class EmployeeController : ControllerBase
@@ -17,9 +19,39 @@ namespace EmployeeAPI.Controllers
 
         // READ ALL (GET)
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Employee>>> GetEmployees()
+        public async Task<ActionResult<PagedResult<Employee>>> GetEmployees(
+            [FromQuery] int page = 0,
+            [FromQuery] int pageSize = 5, 
+            [FromQuery] string? search = null)
         {
-            return await _context.Employees.ToListAsync();
+            IQueryable<Employee> query = _context.Employees;
+
+            // 1. Server-side Filtering (Search)
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                string searchLower = search.ToLower();
+                query = query.Where(e =>
+                    e.Name.ToLower().Contains(searchLower) ||
+                    e.Department.ToLower().Contains(searchLower) ||
+                    e.Id.ToString().Contains(searchLower)
+                );
+            }
+
+            // 2. Count total rows matching the search criteria
+            int totalRecords = await query.CountAsync();
+
+            // 3. Server-side Pagination (Skip/Take execution)
+            var employees = await query
+                .OrderBy(e => e.Id) // Ensure deterministic ordering
+                .Skip(page * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return Ok(new PagedResult<Employee>
+            {
+                Data = employees,
+                TotalRecords = totalRecords
+            });
         }
 
 
